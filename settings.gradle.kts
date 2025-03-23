@@ -21,4 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "BLESample"
 include(":app")
- 
+include(":bluetooth")
