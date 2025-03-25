@@ -11,6 +11,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import androidx.annotation.WorkerThread
 import java.io.ByteArrayOutputStream
 import java.util.Collections
 import java.util.UUID
@@ -55,10 +56,17 @@ class BleConnection(
 
     private val descriptorUUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
+    /**
+     * Attempts to connect to bluetooth device with the @param macAddress
+     *
+     * @throws IllegalStateException if Bluetooth Adapter is null or if the MAC Address is not a
+     * bluetooth address or if Bluetooth Adapter is not turned on
+     */
     fun connect() {
         bleLogger.log(BleLoggerType.VERBOSE, "Connecting")
         verifyPreconnectedState()
         val adapter = applicationContext.bluetoothAdapter() ?: run {
+            bleLogger.log(BleLoggerType.ERROR, "Adapter was already checked, why is this null?")
             return
         }
 
@@ -75,6 +83,9 @@ class BleConnection(
 
     }
 
+    /**
+     * Disconnects from the bluetooth gatt
+     */
     fun disconnect() {
         bleLogger.log(BleLoggerType.VERBOSE, "Disconnecting")
         synchronized(lock) {
@@ -90,12 +101,25 @@ class BleConnection(
         }
     }
 
+    /**
+     * Checks to see if the bluetooth device is bonded
+     *
+     * @return True if the device is bonded, false otherwise
+     */
     fun isBonded(): Boolean {
         synchronized(lock) {
             return bluetoothDevice?.bondState == BluetoothDevice.BOND_BONDED
         }
     }
 
+    /**
+     * Attempts to bond with the connected device
+     * This is a thread blocking call
+     *
+     * @param timeoutInSeconds Amount of time in seconds for the thread to lock while attempting to bond, defaults to 25 seconds
+     * @return True if the device successfully bonds or is already bonded, false otherwise
+     */
+    @WorkerThread
     fun bond(timeoutInSeconds: Long = 25): Boolean {
         bleLogger.log(BleLoggerType.VERBOSE, "Bonding")
         if (isBonded()) {
@@ -111,6 +135,14 @@ class BleConnection(
         return result
     }
 
+    /**
+     * Attempts to discover services for the connected bluetooth device
+     * This is a thread blocking call
+     *
+     * @param timeoutInSeconds Amount of time in seconds for the thread to lock while attempting to discover services. Defaults to 3 seconds
+     * @return True if the services are discovered, false otherwise
+     */
+    @WorkerThread
     fun discoverServices(timeoutInSeconds: Long = 3): Boolean {
         bleLogger.log(BleLoggerType.VERBOSE, "Discovering Services")
         val gatt = getGatt()
@@ -127,6 +159,14 @@ class BleConnection(
         return true
     }
 
+    /**
+     * Attempts to enable indications for the [BleCharacteristic]
+     * This is a thread blocking call
+     *
+     * @param bleCharacteristic [BleCharacteristic] that you are trying to enable indications for
+     * @return True if indications are successfully enabled, false otherwise
+     */
+    @WorkerThread
     fun enableIndications(bleCharacteristic: BleCharacteristic): Boolean {
         bleLogger.log(BleLoggerType.VERBOSE, "Enabling Indications: ${bleCharacteristic.name}")
         return executeDescriptor(
@@ -136,6 +176,14 @@ class BleConnection(
         )
     }
 
+    /**
+     * Attempts to enable notifications for the [BleCharacteristic]
+     * This is a thread blocking call
+     *
+     * @param bleCharacteristic [BleCharacteristic] that you are trying to enable notifications for
+     * @return True if notifications are successfully enabled, false otherwise
+     */
+    @WorkerThread
     fun enableNotifications(bleCharacteristic: BleCharacteristic): Boolean {
         bleLogger.log(BleLoggerType.VERBOSE, "Enabling Notifications: ${bleCharacteristic.name}")
         return executeDescriptor(
@@ -145,6 +193,14 @@ class BleConnection(
         )
     }
 
+    /**
+     * Attempts to disable notifications for the [BleCharacteristic]
+     * This is a thread blocking call
+     *
+     * @param bleCharacteristic [BleCharacteristic] that you are trying to disable notifications for
+     * @return True if notifications are successfully disabled, false otherwise
+     */
+    @WorkerThread
     fun disableNotifications(bleCharacteristic: BleCharacteristic): Boolean {
         bleLogger.log(BleLoggerType.VERBOSE, "Disabling Notifications: ${bleCharacteristic.name}")
         return executeDescriptor(
@@ -154,6 +210,14 @@ class BleConnection(
         )
     }
 
+    /**
+     * Attempts to read data from the [BleCharacteristic] UUID of the peripheral device
+     * This is a thread blocking call
+     *
+     * @param bleCharacteristic [BleCharacteristic] that you are trying to read data from
+     * @return [ByteArray] data that is read from the [BleCharacteristic] UUID endpoint
+     */
+    @WorkerThread
     fun read(bleCharacteristic: BleCharacteristic): ByteArray {
         bleLogger.log(
             BleLoggerType.VERBOSE,
@@ -184,6 +248,15 @@ class BleConnection(
         return characteristicStream.toByteArray()
     }
 
+    /**
+     * Attempts to write data to the [BleCharacteristic] UUID of the peripheral device
+     * This is a thread blocking call
+     *
+     * @param bleCharacteristic [BleCharacteristic] that you are trying to write data to
+     * @param bytes [ByteArray] data that you are trying to write to the peripheral
+     * @return True if the data was successfully written, false otherwise
+     */
+    @WorkerThread
     fun write(bleCharacteristic: BleCharacteristic, bytes: ByteArray): Boolean {
         bleLogger.log(
             BleLoggerType.VERBOSE,
@@ -210,9 +283,17 @@ class BleConnection(
             bleCharacteristic.timeoutInMillis,
             TimeUnit.MILLISECONDS
         )
-
     }
 
+    /**
+     * Attempts to write data to the [BleCharacteristic] UUID of the peripheral device and returns back the
+     * characteristic data for the response
+     *
+     * @param bleCharacteristic [BleCharacteristic] that you are writing data to and reading data back from
+     * @param bytes [ByteArray] data that you are trying to write to the peripheral
+     * @return The bytes returned from the characteristic UUID after writing the [bytes]
+     */
+    @WorkerThread
     fun writeWithAck(bleCharacteristic: BleCharacteristic, bytes: ByteArray): ByteArray {
         bleLogger.log(
             BleLoggerType.VERBOSE,
@@ -246,6 +327,14 @@ class BleConnection(
         return characteristicStream.toByteArray()
     }
 
+    /**
+     * Attempts to write data to the [BleCharacteristic] UUID and does not care if the peripheral does not response
+     * A fire and forget type of write
+     *
+     * @param bleCharacteristic [BleCharacteristic] that you are writing data to
+     * @param bytes [ByteArray] data that you are trying to write to the peripheral
+     * @return True if the data was successfully written (without caring about a response), false otherwise
+     */
     fun writeWithoutResponse(bleCharacteristic: BleCharacteristic, bytes: ByteArray): Boolean {
         bleLogger.log(
             BleLoggerType.VERBOSE,
@@ -268,6 +357,13 @@ class BleConnection(
         return true
     }
 
+    /**
+     * Attempts to get a get a stream of data from the peripheral
+     *
+     * @param streamCharacteristic [BleCharacteristic] that will be streaming data back
+     * @param ackCharacteristic [BleCharacteristic] that is written to when the peripheral is done streaming
+     * @return [BleStream] of the data from the peripheral
+     */
     fun stream(
         streamCharacteristic: BleCharacteristic,
         ackCharacteristic: BleCharacteristic,
@@ -392,6 +488,7 @@ class BleConnection(
             discoverServiceLatch.countDown()
         }
 
+        @Deprecated("Deprecated in Java")
         override fun onCharacteristicRead(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic,
@@ -399,6 +496,22 @@ class BleConnection(
         ) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 characteristicStreams[characteristic.uuid]?.write(characteristic.value)
+                characteristicLatches[characteristic.uuid]?.countDown()
+            } else {
+                logError("Failed to read characteristic")
+            }
+        }
+
+        override fun onCharacteristicRead(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray,
+            status: Int
+        ) {
+            // TODO: Do we need to call this?  Android SDK 35 just calls deprecated onCharacteristicRead but will future implementations change?
+            // super.onCharacteristicRead(gatt, characteristic, value, status)
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                characteristicStreams[characteristic.uuid]?.write(value)
                 characteristicLatches[characteristic.uuid]?.countDown()
             } else {
                 logError("Failed to read characteristic")
@@ -417,11 +530,23 @@ class BleConnection(
             }
         }
 
+        @Deprecated("Deprecated in Java")
         override fun onCharacteristicChanged(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic
         ) {
             characteristicStreams[characteristic.uuid]?.write(characteristic.value)
+            characteristicLatches[characteristic.uuid]?.countDown()
+        }
+
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray
+        ) {
+            // TODO: Do we need to call this?  Android SDK 35 just calls deprecated onCharacteristicChanged but will future implementations change?
+            // super.onCharacteristicChanged(gatt, characteristic, value)
+            characteristicStreams[characteristic.uuid]?.write(value)
             characteristicLatches[characteristic.uuid]?.countDown()
         }
 
